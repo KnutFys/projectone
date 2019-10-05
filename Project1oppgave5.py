@@ -9,11 +9,7 @@ Created on Thu Oct  3 22:19:02 2019
 import numpy as np
 from time import time
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import KFold
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
 from sklearn.linear_model import Lasso
 import pandas as pd
 
@@ -31,7 +27,7 @@ def make_data(datapoints):
     x, y = np.meshgrid(a,b)
     return x, y
 
-def franke_function(x,y, noiceLevel=0):
+def franke_function(x,y, noiceLevel=0,seed=1):
     #This function calculates Franke's function on the meshgrids x, y
     #It then adds noice, drawn from a normal distribution, with mean 
     #0, std 1 and scaled by noiceLevel, to each calculated datapoint of 
@@ -42,7 +38,7 @@ def franke_function(x,y, noiceLevel=0):
     term4 = -0.2*np.exp(-(9*x-4)**2 - (9*y-7)**2)
     
     if noiceLevel != 0:
-        np.random.seed()
+        np.random.seed(seed)
         noice = np.random.randn(x.shape[0],x.shape[1])*noiceLevel
         return term1 + term2 + term3 + term4 , noice
     else:
@@ -76,77 +72,116 @@ def MSE(y_data,y_model):
     n = np.size(y_model)
     return np.sum((y_data-y_model)**2)/n
 
-k = 3
-linear_regression = LinearRegression()
-lasso_regression = Lasso()
-ridge_regression = Ridge(alpha=10, solver="svd")
-kfold = KFold(n_splits = k, shuffle=True)
+
+
+
+def oppgave_5(o=5,level_of_noise=0, seed=1):
+    #Setting the number of datapoints, the amount of noise 
+    #in the Franke function and the order of the polinomial
+    #used as a model.
+    number_of_datapoints = 40
+    np.random.seed(seed)
+    #Making the input and output vektors of the dataset
+    x, y = make_data(number_of_datapoints)
+    z , noise = franke_function(x, y, level_of_noise,seed)
+    #Flattening matrices for easier handling
+    xDim1 = np.ravel(x)
+    yDim1 = np.ravel(y)
+    x = xDim1
+    y = yDim1
+    #Frankes function withou noise
+    true = np.ravel(z)
+    #Frankes function with noise
+    noicy = true + np.ravel(noise)
+
+    #Create instances of sklearn kFold klass to split data for kfoldcv
+    lasso_regression = Lasso()
+    #Create instances of sklearn kFold klass to split data for kfoldcv
+    splits = 5
+    kfold = KFold(n_splits = splits, shuffle=True)
+    #Sets a range of polynomial orders to fit to the data
+    polynomial_order = np.arange(o)+1
+    #Set a range og shrinkage factors for the LASSO regression
+    alphas = np.logspace(-5,-2,10)
+    #Creates a dictionary to store dataframes for each LASSO parameter
+    dataframe_dic = dict()
     
-polynomial_order = np.arange(1,5)
-lamdas = np.logspace(-3,1,5)
-alphas = np.logspace(-3,1,5)
-ols_mse = list()
-ridge_mse = list()
-lasso_mse = list()
-
-#Setting the number of datapoints, the amount of noise 
-#in the Franke function and the order of the polinomial
-#used as a model.
-number_of_datapoints = 40
-level_of_noise = 0.1
-
-#Making the input and output vektors of the dataset
-x, y = make_data(number_of_datapoints)
-z , noise = franke_function(x, y, level_of_noise)
-#Flattening matrices for easier handling
-noiceDim1 = np.ravel(noise)
-xDim1 = np.ravel(x)
-yDim1 = np.ravel(y)
-x = xDim1
-y = yDim1
-#Frankes function withou noice
-true = np.ravel(z)
-#Frankes function with noice
-noicy = true + np.ravel(noise)
-#Sets the rang of polynomial orders to run through
-o = 15
-order = np.arange(o) + 1
-#Creates a list to store the results of each iteration in
-dta = list()   
-for order in polynomial_order:
-    A = design_matrix(order,x,y)
-    ols_avg_mse = 0
-    lamda_mse = np.zeros(len(lamdas))
-    alpha_mse = np.zeros(len(lamdas))
+    for alph in alphas:
+        print("Calculating LASSO, alpha: {}".format(alph))
+        #Creates a list to store the results of each iteration in
+        dta = list()  
+        for order in polynomial_order:
+            print("Using polynomial order {}".format(order))
+            #Creating designmatrix
+            A = design_matrix(order,x,y)
+            #Remove intecept
+            A = A[:,1:] 
+            alpha_mse_test = np.zeros(splits)
+            alpha_mse_train = np.zeros(splits)
+            counter = 0
+            #Initiating kfold cv
+            for train_index, test_index in kfold.split(noicy):
+                print("Calculating fold {} of {}".format(counter+1,splits))
+                X_train, X_test = A[train_index], A[test_index]
+                y_train = noicy[train_index]
+                y_train_true, y_test_true = true[train_index], true[test_index]
+                #Using current aplha and polynomial order solve using Lasso
+                lasso_regression.alpha = alph
+                lasso_regression.fit(X_train,y_train)
+                #Estimate testing and training data
+                ypredict = lasso_regression.predict(X_test)
+                ytilde = lasso_regression.predict(X_train)
+                #Get MSE metric for training and testing data    
+                alpha_mse_test[counter] = MSE(y_test_true,ypredict)
+                alpha_mse_train[counter] = MSE(y_train_true,ytilde)
+                counter = counter + 1                
+                print("Running time: {} seconds".format(time()-t0))
+            dta.append(["{}".format(order),alpha_mse_test.mean(),
+                        alpha_mse_train.mean()])
+        df = pd.DataFrame(dta,columns=[
+                "Polynomial","MSE test set","MSE training set"])
+        dataframe_dic[alph] = df
         
-    #Initiating kfold cv
-    for train_index, test_index in kfold.split(noicy):
-        X_train, X_test = A[train_index], A[test_index]
-        y_train, y_test = noicy[train_index], noicy[test_index]
-            
-        #Solve using OLS
-        linear_regression.fit(X_train,y_train)
-        ytilde = linear_regression.predict(X_test)
-        ols_avg_mse = ols_avg_mse + MSE(y_test,ytilde)
-            
-        #Run through the lamda parameters for the ridge regression and
-        #the current polynomial order of the model
-        for i in range(len(lamdas)):
-            #Solve using Ridge and current lamda
-            ridge_regression.alpha = lamdas[i]
-            ridge_regression.fit(X_train,y_train)
-            ytilde = ridge_regression.predict(X_test)
-            lamda_mse[i] = lamda_mse[i]+MSE(y_test,ytilde)
-                
-        for i in range(len(alphas)):
-            lasso_regression.alpha = alphas[i]
-            lasso_regression.fit(X_train,y_train)
-            ytilde = lasso_regression.predict(X_test)
-            alpha_mse[i] = alpha_mse[i]+MSE(y_test,ytilde)
-        #Store the results for the current polynomial order
-        ridge_mse.append(lamda_mse/k)
-        ols_mse.append(ols_avg_mse/k)
-        lasso_mse.append(alpha_mse/k)
-    print("OLS",ols_mse)
-    print("RIDGE",ridge_mse)
-    print("LASSO",lasso_mse)
+    cmap = plt.get_cmap('jet_r')    
+    plt.figure()
+    fig1 = plt.figure(figsize=(8,4))
+    ax1 = fig1.add_subplot(111)
+    ax1.set_position([0.1,0.1,0.6,0.8])
+    ax1.set_xlabel("Polynomial order")
+    ax1.set_ylabel("Training MSE")
+    fig2 = plt.figure(figsize=(8,4))
+    ax2 = fig2.add_subplot(111)
+    ax2.set_position([0.1,0.1,0.6,0.8])
+    ax2.set_xlabel("Polynomial order")
+    ax2.set_ylabel("Testing MSE")
+    n=0
+    for df in dataframe_dic:        
+        ax1.plot(dataframe_dic[df]["Polynomial"],
+                 dataframe_dic[df]["MSE training set"],
+                 color = cmap(float(n)/len(alphas)),
+                 label="Alpha=%10.2E" %(df))
+        ax2.plot(dataframe_dic[df]["Polynomial"],
+                 dataframe_dic[df]["MSE test set"],
+                 color = cmap(float(n)/len(alphas)),
+                 label="Alpha=%10.2E" %(df))
+        print("alpha:",df)
+        print(dataframe_dic[df])
+        n = n+1
+    fig1.legend(bbox_to_anchor=(0.71, 0.5),loc="center left", borderaxespad=0)
+    fig2.legend(bbox_to_anchor=(0.71, 0.5),loc="center left", borderaxespad=0)
+    if level_of_noise < 0.21:
+        lvl = "low"
+    elif level_of_noise < 0.41:
+        lvl = "med"
+    else:
+        lvl = "high"
+    fig1.savefig("{}Oppg4LATrainSeed{}{}.png".format(plots_path,seed,lvl))
+    fig2.savefig("{}Oppg4LATestSeed{}{}.png".format(plots_path,seed,lvl))
+
+#Oppgave_5 function can be called using an integer argument  giving the 
+#maximum order of polynomial to fit. Second argument determines lvl of noise
+#and third argument set random seed
+for i in range(1,4):
+    oppgave_5(15,0.6,i*5)
+
+print("Running time: {} seconds".format(time()-t0))

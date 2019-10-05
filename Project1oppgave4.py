@@ -2,7 +2,7 @@
 """
 Created on Thu Oct  3 18:24:30 2019
 
-@author: NerdusMaximus
+@author: KHEngvik
 """
 
 import numpy as np
@@ -190,7 +190,7 @@ def make_data(datapoints):
     x, y = np.meshgrid(a,b)
     return x, y
 
-def franke_function(x,y, noise_level=0):
+def franke_function(x,y, noise_level=0,seed=1):
     #This function calculates Franke's function on the meshgrids x, y
     #It then adds noice, drawn from a normal distribution, with mean 
     #0, std 1 and scaled by noiceLevel, to each calculated datapoint of 
@@ -201,7 +201,7 @@ def franke_function(x,y, noise_level=0):
     term4 = -0.2*np.exp(-(9*x-4)**2 - (9*y-7)**2)
     
     if noise_level != 0:
-        np.random.seed(1)
+        np.random.seed(seed)
         noise = np.random.randn(x.shape[0],x.shape[1])*noise_level
         return term1 + term2 + term3 + term4 , noise
     else:
@@ -324,15 +324,16 @@ def confint(V):
 
 
 #Part 4: 
-def oppgave_4(o=5,level_of_noise=0):
+def oppgave_4(o=5,level_of_noise=0,seed=1):
     print("Oppgave 2")
     #Setting the number of datapoints(pr axis), the amount of noise 
     #in the Franke function and the order of the polinomial
     #used as a model.
     number_of_datapoints = 40
+
     #Making the input and output vektors of the dataset
     x, y = make_data(number_of_datapoints)
-    z , noise = franke_function(x, y, level_of_noise)
+    z , noise = franke_function(x, y, level_of_noise,seed)
     #Flattening matrices for easier handling
     x = np.ravel(x)
     y = np.ravel(y)
@@ -349,24 +350,25 @@ def oppgave_4(o=5,level_of_noise=0):
     dataframe_dic = dict()
     for lmd in lambdas:
         dta = list()
-        print(lmd)
         for i in order:
             #Sets up teh design matrix
             X = design_matrix(i,x,y)
             #Creates an instance of the Prorblem class. 
-            prob = Problem(noicy,X,true)
+            prob = Problem(noicy,X[:,1:],true)
             #Sets the random seed
-            prob.seed = 10
+            prob.seed = seed
             #Uses own code to perform kfoldcv
             prob.lamda = lmd
             prob.split(5)
-            print(lmd)
+            print("Calculateing MSE. lamda={}  polynomial order={}".format(
+                    lmd,i))
             print("Running time: {} seconds".format(time()-t0))
             dta.append(["{}".format(i),prob.msetest,prob.msetrain])
         df = pd.DataFrame(dta,columns=["Polynomial","MSE test set",
                                    "MSE training set"])
         dataframe_dic[lmd] = df
-        
+    
+    #Formating outputs    
     cmap = plt.get_cmap('jet_r')    
     plt.figure()
     fig1 = plt.figure(figsize=(8,4))
@@ -380,6 +382,7 @@ def oppgave_4(o=5,level_of_noise=0):
     ax2.set_xlabel("Polynomial order")
     ax2.set_ylabel("Testing MSE")
     n=0
+    #Adding plots for all lamdas
     for df in dataframe_dic:        
         ax1.plot(dataframe_dic[df]["Polynomial"],
                  dataframe_dic[df]["MSE training set"],
@@ -393,11 +396,20 @@ def oppgave_4(o=5,level_of_noise=0):
         n = n+1
     fig1.legend(bbox_to_anchor=(0.71, 0.5),loc="center left", borderaxespad=0)
     fig2.legend(bbox_to_anchor=(0.71, 0.5),loc="center left", borderaxespad=0)
-    fig1.savefig("{}Oppgave4ridgetrain.png".format(plots_path))
-    fig2.savefig("{}Oppgave4ridgetest.png".format(plots_path))
+    #Saving figures for rapport. Named with seed used and noise level
+    if level_of_noise < 0.21:
+        lvl = "low"
+    elif level_of_noise < 0.41:
+        lvl = "med"
+    else:
+        lvl = "high"
+    fig1.savefig("{}Oppg4RiTrainSeed{}{}.png".format(plots_path,seed,lvl))
+    fig2.savefig("{}Oppg4RiTestSeed{}{}.png".format(plots_path,seed,lvl))
     
-#Oppgave_2 function can be called using an integer argument  giving the 
+#Oppgave_4 function can be called using an integer argument  giving the 
 #maximum order of polynomial to fit. Second argument determines lvl of noise
-oppgave_4(15,0.1)
+#Third argument sets random seed
+for i in range(1,4):
+    oppgave_4(15,0.6,i*5)
 
 print("Running time: {} seconds".format(time()-t0))
